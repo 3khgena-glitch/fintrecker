@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Облік коштів</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#1d1d1f;background:#f5f5f7}
+*{box-sizing:border-box}body{margin:0}.app{max-width:980px;margin:auto;padding:20px}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+h1{font-size:28px;margin:0}.date{color:#666;font-size:14px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+.card,.form,.filters{background:white;border-radius:14px;padding:16px;box-shadow:0 1px 4px #0001}
+.label{color:#666;font-size:13px}.value{font-size:24px;font-weight:700;margin-top:6px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.form,.filters{margin-bottom:16px}
+input,select,button{font:inherit;padding:11px;border:1px solid #d2d2d7;border-radius:9px}
+button{cursor:pointer;border:0;background:#007aff;color:white;font-weight:600}
+.secondary{background:#e9e9ed;color:#222}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+table{width:100%;border-collapse:collapse;background:white;border-radius:14px;overflow:hidden;box-shadow:0 1px 4px #0001}
+th,td{padding:11px 12px;border-bottom:1px solid #eee;text-align:left}
+th{font-size:13px;color:#666}.income{color:#159447}.expense{color:#d93025}.right{text-align:right}
+.empty{text-align:center;color:#777;padding:30px}
+@media(max-width:700px){.cards,.grid{grid-template-columns:1fr}.app{padding:12px}}
+</style>
+</head>
+<body>
+<div class="app">
+<header><div><h1>Облік коштів</h1><div class="date" id="today"></div></div></header>
+
+<section class="cards">
+<div class="card"><div class="label">Залишок</div><div class="value" id="balance">0,00 ₴</div></div>
+<div class="card"><div class="label">Надходження</div><div class="value income" id="income">0,00 ₴</div></div>
+<div class="card"><div class="label">Витрати</div><div class="value expense" id="expense">0,00 ₴</div></div>
+</section>
+
+<section class="form">
+<div class="grid">
+<input id="date" type="date">
+<select id="type"><option value="expense">Витрата</option><option value="income">Надходження</option></select>
+<input id="comment" placeholder="Опис">
+<input id="amount" inputmode="decimal" placeholder="Сума">
+</div>
+<div class="actions"><button id="save">Зберегти</button></div>
+</section>
+
+<section class="filters">
+<strong>Історія за період</strong>
+<div class="grid" style="margin-top:10px">
+<input id="from" type="date"><input id="to" type="date">
+<select id="filterType"><option value="">Усі операції</option><option value="income">Надходження</option><option value="expense">Витрати</option></select>
+<input id="search" placeholder="Пошук за описом">
+</div>
+<div class="actions">
+<button class="secondary" id="clearFilter">Очистити фільтр</button>
+<button id="export">Експорт CSV</button>
+<label><button class="secondary" type="button" onclick="document.getElementById('file').click()">Імпорт CSV</button><input id="file" type="file" accept=".csv,text/csv" hidden></label>
+</div>
+</section>
+
+<table><thead><tr><th>Дата</th><th>Тип</th><th>Опис</th><th class="right">Сума</th><th></th></tr></thead>
+<tbody id="rows"></tbody></table>
+</div>
+
+<script>
+const KEY="finance_transactions_v1";
+let data=JSON.parse(localStorage.getItem(KEY)||"[]");
+const $=id=>document.getElementById(id);
+const money=n=>new Intl.NumberFormat("uk-UA",{style:"currency",currency:"UAH"}).format(n);
+const iso=d=>new Date(d).toISOString().slice(0,10), today=iso(new Date());
+$("today").textContent=new Intl.DateTimeFormat("uk-UA",{dateStyle:"long"}).format(new Date());
+$("date").value=today;$("to").value=today;$("from").value=iso(new Date(Date.now()-30*86400000));
+
+function save(){localStorage.setItem(KEY,JSON.stringify(data));render()}
+function filtered(){
+ const from=$("from").value,to=$("to").value,type=$("filterType").value,q=$("search").value.trim().toLowerCase();
+ return data.filter(x=>(!from||x.date>=from)&&(!to||x.date<=to)&&(!type||x.type===type)&&(!q||x.comment.toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date));
+}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+function render(){
+ const inc=data.filter(x=>x.type==="income").reduce((s,x)=>s+x.amount,0);
+ const exp=data.filter(x=>x.type==="expense").reduce((s,x)=>s+x.amount,0);
+ $("balance").textContent=money(inc-exp);$("income").textContent=money(inc);$("expense").textContent=money(exp);
+ const list=filtered();
+ $("rows").innerHTML=list.length?list.map(x=>`<tr><td>${x.date}</td><td class="${x.type}">${x.type==="income"?"Надходження":"Витрата"}</td><td>${esc(x.comment)}</td><td class="right ${x.type}">${x.type==="income"?"+":"−"} ${money(x.amount)}</td><td class="right"><button class="secondary" onclick="removeTx('${x.id}')">×</button></td></tr>`).join(""):'<tr><td colspan="5" class="empty">Операцій немає</td></tr>';
+}
+function removeTx(id){if(confirm("Видалити операцію?")){data=data.filter(x=>x.id!==id);save()}}
+$("save").onclick=()=>{
+ const amount=parseFloat($("amount").value.replace(",","."));
+ if(!amount||amount<=0){alert("Введіть коректну суму");return}
+ data.push({id:crypto.randomUUID(),date:$("date").value||today,type:$("type").value,comment:$("comment").value.trim(),amount});
+ $("amount").value="";$("comment").value="";save();
+};
+["from","to","filterType","search"].forEach(id=>$(id).addEventListener("input",render));
+$("clearFilter").onclick=()=>{$("from").value="";$("to").value="";$("filterType").value="";$("search").value="";render()};
+$("export").onclick=()=>{
+ const rows=[["Дата","Тип","Коментар","Сума"],...data.map(x=>[x.date,x.type==="income"?"Отримання":"Видача",x.comment,x.amount.toFixed(2)])];
+ const csv="\ufeff"+rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(";")).join("\n");
+ const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download="FinanceExport.csv";a.click();
+};
+$("file").onchange=e=>{
+ const f=e.target.files[0];if(!f)return;
+ const r=new FileReader();r.onload=()=>importCSV(r.result);r.readAsText(f,"UTF-8");e.target.value="";
+};
+function importCSV(text){
+ const lines=text.replace(/^\ufeff/,"").split(/\r?\n/).filter(Boolean);if(lines.length<2)return;
+ let added=0;
+ for(let i=1;i<lines.length;i++){
+  const c=lines[i].split(";").map(v=>v.replace(/^"|"$/g,"").replace(/""/g,'"'));
+  if(c.length<4)continue;
+  const date=c[0],type=/отрим|надход/i.test(c[1])?"income":"expense",amount=Math.abs(parseFloat(c[3].replace(",",".")||"0"));
+  if(/^\d{4}-\d{2}-\d{2}$/.test(date)&&amount>0){data.push({id:crypto.randomUUID(),date,type,comment:c[2]||"",amount});added++}
+ }
+ save();alert("Імпортовано операцій: "+added);
+}
+render();
+</script>
+</body>
+</html>
